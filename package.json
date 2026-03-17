@@ -1,0 +1,10 @@
+{
+  "name": "mobileclaw-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MobileClaw V1 Android-first core architecture",
+  "scripts": {
+    "test": "node --experimental-strip-types --test \"src/**/*.test.ts\""
+  }
+}
