@@ -39,6 +39,17 @@ export class LocalMemoryStore {
     return Array.from(this.records.values()).filter((r) => r.channelId === channelId).map((r) => this.strip(r));
   }
 
+  dumpState(): Array<Omit<IndexedMemoryRecord, "embedding"> & { embedding: number[] }> {
+    return Array.from(this.records.values()).map((r) => ({ ...r, embedding: [...r.embedding] }));
+  }
+
+  loadState(state: Array<Omit<IndexedMemoryRecord, "embedding"> & { embedding: number[] }>): void {
+    this.records.clear();
+    for (const record of state) {
+      this.records.set(record.id, { ...record, embedding: [...record.embedding] });
+    }
+  }
+
   private strip(record: IndexedMemoryRecord): MemoryRecord {
     return {
       id: record.id,

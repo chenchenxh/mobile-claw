@@ -52,6 +52,15 @@ export class InMemoryCredentialStore implements CredentialStore {
     return this.credentials.get(credentialRef) ?? null;
   }
 
+  dumpState(): StoredCredential[] {
+    return Array.from(this.credentials.values()).map((c) => ({ ...c }));
+  }
+
+  loadState(state: StoredCredential[]): void {
+    this.credentials.clear();
+    for (const credential of state) this.credentials.set(credential.id, { ...credential });
+  }
+
   private mustGet(credentialRef: string): StoredCredential {
     const credential = this.credentials.get(credentialRef);
     if (!credential) throw new Error(`credential ${credentialRef} not found`);

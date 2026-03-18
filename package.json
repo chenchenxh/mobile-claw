@@ -5,6 +5,18 @@
   "type": "module",
   "description": "MobileClaw V1 Android-first core architecture",
   "scripts": {
-    "test": "node --experimental-strip-types --test \"src/**/*.test.ts\""
+    "test": "node --experimental-strip-types --test \"src/**/*.test.ts\"",
+    "demo": "node --experimental-strip-types src/demo/cli-demo.ts",
+    "start": "react-native start",
+    "android": "react-native run-android",
+    "doctor": "react-native doctor"
+  },
+  "dependencies": {
+    "react": "18.2.0",
+    "react-native": "0.74.5"
+  },
+  "devDependencies": {
+    "@react-native/babel-preset": "0.74.87",
+    "@react-native/metro-config": "0.74.87"
   }
 }

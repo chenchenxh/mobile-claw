@@ -62,4 +62,29 @@ export class ChannelService {
     const ids = ch.messageIds.slice(-limit);
     return ids.map((id) => this.messages.get(id)).filter((m): m is Message => Boolean(m));
   }
+
+  dumpState(): {
+    workspaces: WorkspaceConfig[];
+    channels: Channel[];
+    messages: Message[];
+  } {
+    return {
+      workspaces: Array.from(this.workspaces.values()),
+      channels: Array.from(this.channels.values()),
+      messages: Array.from(this.messages.values())
+    };
+  }
+
+  loadState(state: {
+    workspaces: WorkspaceConfig[];
+    channels: Channel[];
+    messages: Message[];
+  }): void {
+    this.workspaces.clear();
+    this.channels.clear();
+    this.messages.clear();
+    for (const ws of state.workspaces) this.workspaces.set(ws.id, ws);
+    for (const ch of state.channels) this.channels.set(ch.id, ch);
+    for (const msg of state.messages) this.messages.set(msg.id, msg);
+  }
 }

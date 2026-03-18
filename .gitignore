@@ -1,0 +1,20 @@
+# macOS
+.DS_Store
+
+# Node / React Native
+node_modules/
+.npm-cache/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Gradle / Android build outputs
+.gradle/
+android/.gradle/
+android/app/build/
+android/build/
+
+# Local env / temp
+.env
+.env.*
+*.keystore

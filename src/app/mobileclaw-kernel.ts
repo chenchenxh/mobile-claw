@@ -5,7 +5,8 @@ import { BaseMockAdapter } from "../core/gateway/base-mock-adapter.ts";
 import { GatewayRouter } from "../core/gateway/gateway-router.ts";
 import { extractMemory } from "../core/memory/memory-extractor.ts";
 import { LocalMemoryStore } from "../core/memory/local-memory-store.ts";
-import type { ChannelContext, ChatResponse, Message, ModelProvider, ModelSession, PlanRun, PlanStep, WorkspaceConfig } from "../types/contracts.ts";
+import type { ChannelContext, ChatResponse, GatewayAdapter, Message, ModelProvider, ModelSession, PlanRun, PlanStep, WorkspaceConfig } from "../types/contracts.ts";
+import type { PersistedAppState } from "../core/persistence/file-state-store.ts";
 
 export interface SendMessageOptions {
   channelId: string;
@@ -20,8 +21,21 @@ export class MobileClawKernel {
   readonly credentials = new InMemoryCredentialStore();
   readonly gateway = new GatewayRouter();
   readonly planner = new PlanEngine();
+  private readonly persistence?: {
+    load(): Promise<PersistedAppState | null>;
+    save(state: PersistedAppState): Promise<void>;
+  };
 
-  constructor(providers: ModelProvider[]) {
+  constructor(
+    providers: ModelProvider[],
+    options?: {
+      persistence?: {
+        load(): Promise<PersistedAppState | null>;
+        save(state: PersistedAppState): Promise<void>;
+      };
+    }
+  ) {
+    this.persistence = options?.persistence;
     for (const provider of providers) {
       this.gateway.registerAdapter(
         new BaseMockAdapter(
@@ -36,12 +50,19 @@ export class MobileClawKernel {
     }
   }
 
+  registerProviderAdapter(adapter: GatewayAdapter): void {
+    this.gateway.registerAdapter(adapter);
+  }
+
   addWorkspace(config: WorkspaceConfig): void {
     this.channels.upsertWorkspace(config);
+    void this.persistNow();
   }
 
   createChannel(workspaceId: string, name: string): string {
-    return this.channels.createChannel(workspaceId, name).id;
+    const id = this.channels.createChannel(workspaceId, name).id;
+    void this.persistNow();
+    return id;
   }
 
   async sendMessage(options: SendMessageOptions): Promise<ChatResponse> {
@@ -63,16 +84,19 @@ export class MobileClawKernel {
       { primary: options.primary, fallback: options.fallback }
     );
     this.channels.appendMessage(options.channelId, "assistant", response.text);
+    await this.persistNow();
     return response;
   }
 
   createPlan(steps: Omit<PlanStep, "id" | "status">[]): PlanRun {
-    return this.planner.createPlan(steps);
+    const plan = this.planner.createPlan(steps);
+    void this.persistNow();
+    return plan;
   }
 
   async runPlan(channelId: string): Promise<PlanRun> {
     const context = this.getChannelContext(channelId);
-    return this.planner.run(context, {
+    const run = await this.planner.run(context, {
       execute: async (step, ctx) => {
         if (step.tool === "chat.summarize") {
           const last = ctx.recentMessages.slice(-5).map((m) => m.content).join(" | ");
@@ -87,6 +111,8 @@ export class MobileClawKernel {
         return { ok: true };
       }
     });
+    await this.persistNow();
+    return run;
   }
 
   getChannelContext(channelId: string): ChannelContext {
@@ -111,5 +137,28 @@ export class MobileClawKernel {
   private persistMemories(channelId: string, userText: string): void {
     const extracted = extractMemory(userText);
     for (const item of extracted) this.memory.write(channelId, item.type, item.content);
+  }
+
+  async loadPersistedState(): Promise<void> {
+    if (!this.persistence) return;
+    const state = await this.persistence.load();
+    if (!state) return;
+    this.channels.loadState({
+      workspaces: state.workspaces,
+      channels: state.channels,
+      messages: state.messages
+    });
+    this.memory.loadState(state.memoryRecords);
+    this.credentials.loadState(state.credentials);
+  }
+
+  async persistNow(): Promise<void> {
+    if (!this.persistence) return;
+    await this.persistence.save({
+      version: 1,
+      ...this.channels.dumpState(),
+      memoryRecords: this.memory.dumpState(),
+      credentials: this.credentials.dumpState()
+    });
   }
 }
