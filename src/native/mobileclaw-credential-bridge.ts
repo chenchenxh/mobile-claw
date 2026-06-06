@@ -6,5 +6,6 @@
 export interface MobileClawCredentialBridge {
   saveEncrypted(providerId: string, payload: string): Promise<string>;
   startOAuth(providerId: string, authUrl: string): Promise<string>;
+  createPkce(): Promise<{ verifier: string; challenge: string }>;
   revoke(credentialRef: string): Promise<string>;
 }

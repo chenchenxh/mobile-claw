@@ -1,4 +1,5 @@
 import type { ChatRequest, ChatResponse, GatewayAdapter, ModelSession } from "../../types/contracts.ts";
+import { appLogger } from "../observability/app-logger.ts";
 
 export interface RoutedSession {
   primary: ModelSession;
@@ -22,8 +23,25 @@ export class GatewayRouter {
     try {
       return await primary.chat(request, session.primary);
     } catch (err) {
+      appLogger.warn({
+        module: "gateway.router",
+        event: "primary_failed",
+        message: "主模型调用失败",
+        context: {
+          providerId: session.primary.providerId,
+          modelId: session.primary.modelId,
+          hasFallback: Boolean(session.fallback)
+        },
+        error: err instanceof Error ? err.message : String(err)
+      });
       if (!session.fallback) throw err;
       const fallback = this.mustAdapter(session.fallback.providerId);
+      appLogger.info({
+        module: "gateway.router",
+        event: "fallback_start",
+        message: "开始调用回退模型",
+        context: { providerId: session.fallback.providerId, modelId: session.fallback.modelId }
+      });
       return fallback.chat(request, session.fallback);
     }
   }

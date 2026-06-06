@@ -50,6 +50,7 @@ export class GeminiAdapter implements GatewayAdapter {
     const url = `${this.baseUrl}/models/${encodeURIComponent(session.modelId)}:generateContent?key=${encodeURIComponent(key)}`;
     const res = await fetch(url, {
       method: "POST",
+      signal: request.signal,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [

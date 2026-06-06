@@ -18,3 +18,9 @@ android/build/
 .env
 .env.*
 *.keystore
+
+# Local runtime / private collaboration state
+/.codex/
+/.mobileclaw/
+/memory/
+/memory/**

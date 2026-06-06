@@ -60,3 +60,32 @@ test("redactSensitive hides token-like values", () => {
   assert.doesNotMatch(redacted, /oauth_access_xxx/);
   assert.match(redacted, /\[REDACTED\]/);
 });
+
+test("cron jobs persist and restore after kernel restart", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "mobileclaw-cron-"));
+  const statePath = join(dir, "state.json");
+  const persistence = new FileStateStore(statePath);
+  try {
+    const kernel1 = new MobileClawKernel(providers, { persistence });
+    kernel1.addWorkspace(ws);
+    const channelId = kernel1.createChannel(ws.id, "cron");
+    await kernel1.configureProviderByok("openai", "sk_cron_persist");
+    kernel1.addCronJob({
+      name: "daily-reminder",
+      schedule: { kind: "every", everyMs: 60_000 },
+      payload: { channelId, text: "记得复盘今天进度", tier: "small" }
+    });
+    await kernel1.persistNow();
+    await kernel1.shutdown();
+
+    const kernel2 = new MobileClawKernel(providers, { persistence });
+    await kernel2.loadPersistedState();
+    const jobs = kernel2.listCronJobs(true);
+    assert.equal(jobs.length, 1);
+    assert.equal(jobs[0].name, "daily-reminder");
+    assert.equal(jobs[0].payload.channelId, channelId);
+    await kernel2.shutdown();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

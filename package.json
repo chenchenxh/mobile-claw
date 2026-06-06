@@ -7,8 +7,11 @@
   "scripts": {
     "test": "node --experimental-strip-types --test \"src/**/*.test.ts\"",
     "demo": "node --experimental-strip-types src/demo/cli-demo.ts",
-    "start": "react-native start",
-    "android": "react-native run-android",
+    "start": "bash -lc 'export NVM_DIR=\"$HOME/.nvm\"; [ -s \"$NVM_DIR/nvm.sh\" ] && . \"$NVM_DIR/nvm.sh\"; command -v nvm >/dev/null 2>&1 && nvm use || true; export NODE_BINARY=\"$(command -v node)\"; react-native start \"$@\"' --",
+    "android": "bash -lc 'export NVM_DIR=\"$HOME/.nvm\"; [ -s \"$NVM_DIR/nvm.sh\" ] && . \"$NVM_DIR/nvm.sh\"; command -v nvm >/dev/null 2>&1 && nvm use || true; export NODE_BINARY=\"$(command -v node)\"; GRADLE_USER_HOME=\"$PWD/.gradle\" react-native run-android \"$@\"' --",
+    "android:no-packager": "bash -lc 'export NVM_DIR=\"$HOME/.nvm\"; [ -s \"$NVM_DIR/nvm.sh\" ] && . \"$NVM_DIR/nvm.sh\"; command -v nvm >/dev/null 2>&1 && nvm use || true; export NODE_BINARY=\"$(command -v node)\"; GRADLE_USER_HOME=\"$PWD/.gradle\" react-native run-android --no-packager \"$@\"' --",
+    "android:release": "bash -lc 'export NVM_DIR=\"$HOME/.nvm\"; [ -s \"$NVM_DIR/nvm.sh\" ] && . \"$NVM_DIR/nvm.sh\"; command -v nvm >/dev/null 2>&1 && nvm use || true; export NODE_BINARY=\"$(command -v node)\"; cd android && GRADLE_USER_HOME=../.gradle ./gradlew installRelease \"$@\"' --",
+    "android:release:apk": "bash -lc 'export NVM_DIR=\"$HOME/.nvm\"; [ -s \"$NVM_DIR/nvm.sh\" ] && . \"$NVM_DIR/nvm.sh\"; command -v nvm >/dev/null 2>&1 && nvm use || true; export NODE_BINARY=\"$(command -v node)\"; cd android && GRADLE_USER_HOME=../.gradle ./gradlew assembleRelease \"$@\"' --",
     "doctor": "react-native doctor"
   },
   "dependencies": {

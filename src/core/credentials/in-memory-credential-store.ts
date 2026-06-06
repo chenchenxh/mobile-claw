@@ -32,6 +32,20 @@ export class InMemoryCredentialStore implements CredentialStore {
     return id;
   }
 
+  async saveOAuthTokens(providerId: string, tokens: OAuthTokens): Promise<string> {
+    const now = Date.now();
+    const id = uid("cred");
+    this.credentials.set(id, {
+      id,
+      providerId,
+      authMode: "OAUTH",
+      oauth: tokens,
+      createdAt: now,
+      updatedAt: now
+    });
+    return id;
+  }
+
   async refreshToken(credentialRef: string): Promise<void> {
     const existing = this.mustGet(credentialRef);
     if (existing.authMode !== "OAUTH") throw new Error("refreshToken only supports OAUTH credential");
@@ -59,6 +73,10 @@ export class InMemoryCredentialStore implements CredentialStore {
   loadState(state: StoredCredential[]): void {
     this.credentials.clear();
     for (const credential of state) this.credentials.set(credential.id, { ...credential });
+  }
+
+  reset(): void {
+    this.credentials.clear();
   }
 
   private mustGet(credentialRef: string): StoredCredential {
