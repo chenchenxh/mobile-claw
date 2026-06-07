@@ -47,7 +47,7 @@ export function SettingsScreen(props: { store: Store }) {
 
       <Text style={styles.section}>模型与配置</Text>
       <View style={styles.card}>
-        <Text style={styles.hint}>模型管理与 OAuth/BYOK 配置已统一到“模型”页面。</Text>
+        <Text style={styles.hint}>模型管理与 API Key 配置已统一到“模型”页面。</Text>
         <Pressable style={styles.button} onPress={props.store.openModels}>
           <Text style={styles.buttonText}>打开模型页</Text>
         </Pressable>

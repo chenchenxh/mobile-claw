@@ -6,34 +6,30 @@ import {
   listVisibleProviderSpecs
 } from "../core/gateway/provider-registry.ts";
 
-test("provider registry exposes openai and minimax defaults", () => {
-  const openai = getProviderSpec("openai");
+test("provider registry exposes DeepSeek and MiniMax API Key defaults", () => {
+  const deepseek = getProviderSpec("deepseek");
   const minimax = getProviderSpec("minimax");
-  assert.ok(openai);
+  assert.ok(deepseek);
   assert.ok(minimax);
-  assert.equal(openai?.defaultApiBase, "https://api.openai.com/v1");
+  assert.equal(deepseek?.defaultApiBase, "https://api.deepseek.com");
   assert.equal(minimax?.defaultApiBase, "https://api.minimax.io/anthropic");
-  assert.ok(openai?.authModes.includes("BYOK"));
-  assert.ok(minimax?.authModes.includes("OAUTH"));
+  assert.ok(deepseek?.authModes.includes("BYOK"));
+  assert.equal(deepseek?.authModes.includes("OAUTH"), false);
+  assert.ok(minimax?.authModes.includes("BYOK"));
+  assert.equal(minimax?.authModes.includes("OAUTH"), false);
 });
 
 test("visible providers only include UI-facing providers", () => {
   const visible = listVisibleProviderSpecs().map((p) => p.id);
-  assert.ok(visible.includes("openai"));
+  assert.deepEqual(visible, ["deepseek", "minimax"]);
+  assert.ok(visible.includes("deepseek"));
   assert.ok(visible.includes("minimax"));
-  assert.equal(visible.includes("google"), false);
-  assert.ok(PROVIDER_SPECS.length >= visible.length);
+  assert.equal(PROVIDER_SPECS.length, visible.length);
 });
 
-test("oauth presets are built-in for openai/minimax to support zero-parameter default flow", () => {
-  const openai = getProviderSpec("openai");
+test("visible providers only support API Key auth", () => {
+  const deepseek = getProviderSpec("deepseek");
   const minimax = getProviderSpec("minimax");
-  assert.ok(openai?.oauthPreset);
-  assert.ok(minimax?.oauthPreset);
-  assert.ok((openai?.oauthPreset?.clientId ?? "").length > 0);
-  assert.ok((minimax?.oauthPreset?.clientId ?? "").length > 0);
-  assert.ok((openai?.oauthPreset?.authEndpoint ?? "").startsWith("https://"));
-  assert.ok((minimax?.oauthPreset?.tokenEndpoint ?? "").startsWith("https://"));
-  assert.match(minimax?.oauthPreset?.authEndpoint ?? "", /\/oauth\/code$/);
-  assert.match(minimax?.oauthPreset?.tokenEndpoint ?? "", /\/oauth\/token$/);
+  assert.deepEqual(deepseek?.authModes, ["BYOK"]);
+  assert.deepEqual(minimax?.authModes, ["BYOK"]);
 });

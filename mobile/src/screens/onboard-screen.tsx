@@ -5,7 +5,7 @@ import type { MaterialTheme } from "../theme/material";
 
 type Store = {
   theme: MaterialTheme;
-  providers: ReadonlyArray<{ id: string; label: string }>;
+  providers: ReadonlyArray<{ id: string; label: string; authModes?: AuthMode[] }>;
   providerCredentialMap: Record<string, string>;
   onboardingRequired: boolean;
   finishOnboarding(): void;
@@ -25,8 +25,6 @@ type Store = {
   oauthWizardSelectProvider(providerId: string): void;
   oauthWizardSelectAuthMode(mode: AuthMode): void;
   oauthWizardSelectMiniMaxRegion(region: "global" | "cn"): void;
-  oauthWizardSelectParamSource(source: "preset" | "manual"): void;
-  oauthWizardUpdateConfig(patch: Partial<OAuthClientConfig>): void;
   oauthWizardUpdateByokKey(key: string): void;
   oauthWizardBack(): void;
   oauthWizardNext(): void;
@@ -40,7 +38,7 @@ type Store = {
 const stepNameMap: Record<Store["oauthWizard"]["step"], string> = {
   provider: "选择模型提供商",
   auth_mode: "选择鉴权方式",
-  param_source: "OAuth 参数来源",
+  param_source: "参数来源",
   params: "填写密钥",
   authorize: "拉起授权与保存",
   exchange: "交换 Token",
@@ -61,36 +59,12 @@ export function OnboardScreen(props: { store: Store }) {
   const { store } = props;
   const wizard = store.oauthWizard;
   const styles = React.useMemo(() => createStyles(store.theme), [store.theme]);
-  const [scopesInput, setScopesInput] = React.useState((wizard.configDraft?.scopes ?? []).join(","));
-  const [manualExpanded, setManualExpanded] = React.useState(false);
-
-  React.useEffect(() => {
-    setScopesInput((wizard.configDraft?.scopes ?? []).join(","));
-  }, [wizard.configDraft?.scopes]);
-
-  React.useEffect(() => {
-    if (wizard.parameterSource !== "manual") setManualExpanded(false);
-  }, [wizard.parameterSource]);
-
   const selectedProviderLabel = wizard.providerId
     ? store.providers.find((p) => p.id === wizard.providerId)?.label ?? wizard.providerId
     : "未选择";
-  const miniMaxRegion = wizard.configDraft?.authEndpoint?.includes("minimaxi.com") ? "cn" : "global";
-
-  const renderOAuthConfigSummary = () => {
-    const config = wizard.configDraft;
-    if (!config) return null;
-    return (
-      <View style={styles.summaryBox}>
-        <Text style={styles.summaryLine}>auth: {config.authEndpoint || "-"}</Text>
-        <Text style={styles.summaryLine}>token: {config.tokenEndpoint || "-"}</Text>
-        <Text style={styles.summaryLine}>apiBase: {config.apiBaseUrl || "-"}</Text>
-        <Text style={styles.summaryLine}>redirect: {config.redirectUri || "-"}</Text>
-        <Text style={styles.summaryLine}>scopes: {(config.scopes ?? []).join(" ") || "-"}</Text>
-        <Text style={styles.helper}>默认配置会使用内置参数自动授权；如果失败，再切到手动输入（高级）覆盖。</Text>
-      </View>
-    );
-  };
+  const selectedProvider = wizard.providerId ? store.providers.find((p) => p.id === wizard.providerId) : undefined;
+  const authModes = selectedProvider?.authModes ?? ["BYOK"];
+  const miniMaxRegion = wizard.configDraft?.apiBaseUrl?.includes("minimaxi.com") ? "cn" : "global";
 
   const progressChips = [
     { key: "provider", order: 1, label: "1. 提供商", value: selectedProviderLabel, done: Boolean(wizard.providerId) },
@@ -98,7 +72,7 @@ export function OnboardScreen(props: { store: Store }) {
       key: "auth_mode",
       order: 2,
       label: "2. 鉴权",
-      value: wizard.authMode ? (wizard.authMode === "BYOK" ? "BYOK" : "OAuth") : "未选择",
+      value: wizard.authMode ? (wizard.authMode === "BYOK" ? "API Key" : "不支持") : "未选择",
       done: Boolean(wizard.authMode)
     },
     {
@@ -181,106 +155,12 @@ export function OnboardScreen(props: { store: Store }) {
           <Text style={styles.cardTitle}>第 2 步：选择鉴权方式</Text>
           <Text style={styles.helper}>当前提供商：{selectedProviderLabel}</Text>
           <View style={styles.optionList}>
-            <Pressable style={[styles.optionButton, wizard.authMode === "BYOK" ? styles.optionButtonActive : null]} onPress={() => store.oauthWizardSelectAuthMode("BYOK")}>
-              <Text style={[styles.optionButtonText, wizard.authMode === "BYOK" ? styles.optionButtonTextActive : null]}>BYOK（API Key）</Text>
-            </Pressable>
-            <Pressable style={[styles.optionButton, wizard.authMode === "OAUTH" ? styles.optionButtonActive : null]} onPress={() => store.oauthWizardSelectAuthMode("OAUTH")}>
-              <Text style={[styles.optionButtonText, wizard.authMode === "OAUTH" ? styles.optionButtonTextActive : null]}>OAuth（网页授权）</Text>
-            </Pressable>
+            {authModes.includes("BYOK") ? (
+              <Pressable style={[styles.optionButton, wizard.authMode === "BYOK" ? styles.optionButtonActive : null]} onPress={() => store.oauthWizardSelectAuthMode("BYOK")}>
+                <Text style={[styles.optionButtonText, wizard.authMode === "BYOK" ? styles.optionButtonTextActive : null]}>BYOK（API Key）</Text>
+              </Pressable>
+            ) : null}
           </View>
-        </View>
-      ) : null}
-
-      {wizard.step === "param_source" && wizard.authMode === "OAUTH" ? (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>第 3 步：参数来源</Text>
-          <Text style={styles.helper}>默认推荐直接可用；手动输入仅用于高级调试。</Text>
-          {wizard.providerId === "minimax" ? (
-            <View style={styles.optionList}>
-              <Pressable
-                style={[styles.optionButton, miniMaxRegion === "global" ? styles.optionButtonActive : null]}
-                onPress={() => store.oauthWizardSelectMiniMaxRegion("global")}
-              >
-                <Text style={[styles.optionButtonText, miniMaxRegion === "global" ? styles.optionButtonTextActive : null]}>Global</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.optionButton, miniMaxRegion === "cn" ? styles.optionButtonActive : null]}
-                onPress={() => store.oauthWizardSelectMiniMaxRegion("cn")}
-              >
-                <Text style={[styles.optionButtonText, miniMaxRegion === "cn" ? styles.optionButtonTextActive : null]}>CN</Text>
-              </Pressable>
-            </View>
-          ) : null}
-          <View style={styles.optionList}>
-            <Pressable
-              style={[styles.optionButton, wizard.parameterSource === "preset" ? styles.optionButtonActive : null]}
-              onPress={() => store.oauthWizardSelectParamSource("preset")}
-            >
-              <Text style={[styles.optionButtonText, wizard.parameterSource === "preset" ? styles.optionButtonTextActive : null]}>默认配置</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.optionButton, wizard.parameterSource === "manual" ? styles.optionButtonActive : null]}
-              onPress={() => store.oauthWizardSelectParamSource("manual")}
-            >
-              <Text style={[styles.optionButtonText, wizard.parameterSource === "manual" ? styles.optionButtonTextActive : null]}>手动输入</Text>
-            </Pressable>
-          </View>
-          {wizard.parameterSource === "manual" ? (
-            <>
-              <Pressable style={[styles.button, styles.secondaryButton]} onPress={() => setManualExpanded((prev) => !prev)}>
-                <Text style={[styles.buttonText, styles.secondaryButtonText]}>{manualExpanded ? "收起高级参数" : "展开高级参数"}</Text>
-              </Pressable>
-              {manualExpanded ? (
-                <>
-                  <TextInput
-                    style={styles.input}
-                    value={wizard.configDraft?.clientId ?? ""}
-                    onChangeText={(value) => store.oauthWizardUpdateConfig({ clientId: value })}
-                    placeholder="clientId"
-                    placeholderTextColor={store.theme.color.onSurfaceVariant}
-                  />
-                  <TextInput
-                    style={styles.input}
-                    value={wizard.configDraft?.authEndpoint ?? ""}
-                    onChangeText={(value) => store.oauthWizardUpdateConfig({ authEndpoint: value })}
-                    placeholder="authEndpoint"
-                    placeholderTextColor={store.theme.color.onSurfaceVariant}
-                  />
-                  <TextInput
-                    style={styles.input}
-                    value={wizard.configDraft?.tokenEndpoint ?? ""}
-                    onChangeText={(value) => store.oauthWizardUpdateConfig({ tokenEndpoint: value })}
-                    placeholder="tokenEndpoint"
-                    placeholderTextColor={store.theme.color.onSurfaceVariant}
-                  />
-                  <TextInput
-                    style={styles.input}
-                    value={wizard.configDraft?.redirectUri ?? ""}
-                    onChangeText={(value) => store.oauthWizardUpdateConfig({ redirectUri: value })}
-                    placeholder="redirectUri"
-                    placeholderTextColor={store.theme.color.onSurfaceVariant}
-                  />
-                  <TextInput
-                    style={styles.input}
-                    value={scopesInput}
-                    onChangeText={(value) => {
-                      setScopesInput(value);
-                      store.oauthWizardUpdateConfig({
-                        scopes: value.split(",").map((v) => v.trim()).filter(Boolean)
-                      });
-                    }}
-                    placeholder="scopes（逗号分隔）"
-                    placeholderTextColor={store.theme.color.onSurfaceVariant}
-                  />
-                </>
-              ) : null}
-              <Pressable style={styles.button} onPress={store.oauthWizardNext}>
-                <Text style={styles.buttonText}>继续</Text>
-              </Pressable>
-            </>
-          ) : (
-            renderOAuthConfigSummary()
-          )}
         </View>
       ) : null}
 
@@ -329,13 +209,8 @@ export function OnboardScreen(props: { store: Store }) {
 
       {(wizard.step === "authorize" || wizard.step === "exchange") ? (
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>第 4 步：执行授权/保存</Text>
-          {wizard.authMode === "OAUTH" ? renderOAuthConfigSummary() : null}
-          <Text style={styles.helper}>
-            {wizard.authMode === "BYOK"
-              ? "将直接保存当前 API Key。"
-              : "点击后会拉起网页授权，回到 App 后自动交换 Token 并保存。"}
-          </Text>
+          <Text style={styles.cardTitle}>第 4 步：保存 API Key</Text>
+          <Text style={styles.helper}>将直接保存当前 API Key。</Text>
           <Pressable
             style={[styles.button, store.oauthWizardBusy ? styles.buttonDisabled : null]}
             disabled={store.oauthWizardBusy}
@@ -344,7 +219,7 @@ export function OnboardScreen(props: { store: Store }) {
             }}
           >
             <Text style={styles.buttonText}>
-              {store.oauthWizardBusy ? "处理中..." : wizard.authMode === "BYOK" ? "保存 API Key" : "打开授权网页并继续"}
+              {store.oauthWizardBusy ? "处理中..." : "保存 API Key"}
             </Text>
           </Pressable>
           {wizard.error ? (

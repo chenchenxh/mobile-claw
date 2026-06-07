@@ -17,7 +17,7 @@ const MAX_ENTRIES = 500;
 const entries: AppLogEntry[] = [];
 const listeners = new Set<Listener>();
 
-const redactedKeyPattern = /(token|apikey|api_key|authorization|secret|password|code)/i;
+const redactedKeyPattern = /(token|api[-_]?key|authorization|secret|password|code)/i;
 
 function uid(): string {
   return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;

@@ -2,13 +2,13 @@ import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { MobileClawKernel } from "../app/mobileclaw-kernel.ts";
 import { FileStateStore } from "../core/persistence/file-state-store.ts";
-import { OpenAICompatibleAdapter } from "../core/gateway/openai-compatible-adapter.ts";
-import { GeminiAdapter } from "../core/gateway/gemini-adapter.ts";
+import { DeepSeekCompatibleAdapter } from "../core/gateway/deepseek-compatible-adapter.ts";
+import { MiniMaxAnthropicAdapter } from "../core/gateway/minimax-anthropic-adapter.ts";
 import type { ModelProvider, ModelSession, WorkspaceConfig } from "../types/contracts.ts";
 
 const providers: ModelProvider[] = [
-  { id: "openai", type: "openai", authMode: "BYOK", capabilities: { supportsChat: true, supportsEmbedding: true, supportsStream: true } },
-  { id: "google", type: "google", authMode: "BYOK", capabilities: { supportsChat: true, supportsEmbedding: true, supportsStream: true } }
+  { id: "deepseek", type: "deepseek", authMode: "BYOK", capabilities: { supportsChat: true, supportsEmbedding: true, supportsStream: true } },
+  { id: "minimax", type: "minimax", authMode: "BYOK", capabilities: { supportsChat: true, supportsEmbedding: true, supportsStream: true } }
 ];
 
 const workspace: WorkspaceConfig = {
@@ -24,13 +24,13 @@ async function main(): Promise<void> {
     persistence: new FileStateStore(".mobileclaw/state.json")
   });
   await kernel.loadPersistedState();
-  kernel.registerProviderAdapter(new OpenAICompatibleAdapter(providers[0], kernel.credentials));
-  kernel.registerProviderAdapter(new GeminiAdapter(providers[1], kernel.credentials));
+  kernel.registerProviderAdapter(new DeepSeekCompatibleAdapter(providers[0], kernel.credentials));
+  kernel.registerProviderAdapter(new MiniMaxAnthropicAdapter(providers[1], kernel.credentials));
 
-  const openaiKey = process.env.OPENAI_API_KEY;
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (!openaiKey && !geminiKey) {
-    console.log("Set OPENAI_API_KEY or GEMINI_API_KEY to run real model chat.");
+  const deepseekKey = process.env.DEEPSEEK_API_KEY;
+  const minimaxKey = process.env.MINIMAX_API_KEY;
+  if (!deepseekKey && !minimaxKey) {
+    console.log("Set DEEPSEEK_API_KEY or MINIMAX_API_KEY to run real model chat.");
     return;
   }
 
@@ -39,12 +39,12 @@ async function main(): Promise<void> {
   const channelId = existing?.id ?? kernel.createChannel(workspace.id, "default");
 
   let primary: ModelSession;
-  if (openaiKey) {
-    const cred = await kernel.credentials.saveKey("openai", openaiKey);
-    primary = { providerId: "openai", modelId: "gpt-4o-mini", credentialRef: cred };
+  if (deepseekKey) {
+    const cred = await kernel.credentials.saveKey("deepseek", deepseekKey);
+    primary = { providerId: "deepseek", modelId: "deepseek-v4-flash", credentialRef: cred };
   } else {
-    const cred = await kernel.credentials.saveKey("google", geminiKey as string);
-    primary = { providerId: "google", modelId: "gemini-2.5-flash", credentialRef: cred };
+    const cred = await kernel.credentials.saveKey("minimax", minimaxKey as string);
+    primary = { providerId: "minimax", modelId: "MiniMax-M2.5", credentialRef: cred };
   }
 
   console.log("MobileClaw CLI demo started. Type '/exit' to quit.");

@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## V3.5
+
+### Added
+- 新增 DeepSeek API Key provider 与 `deepseek-v4-flash / deepseek-v4-pro` 默认模型。
+- 网关日志补齐 raw request / raw response，便于直接核对最终 URL、model、headers、body 与响应。
+- 日志页支持长按复制日志内容，错误详情改为可滚动查看。
+
+### Changed
+- 模型配置入口收敛为 DeepSeek API Key 与 MiniMax API Key 两条路径。
+- MiniMax 与 DeepSeek adapter 均只接受 BYOK/API Key，不再接收 OAuth credential。
+- CLI demo 与 provider 测试改用 DeepSeek/MiniMax 作为默认样例 provider。
+
+### Removed
+- 移除 OpenAI API Key、OpenAI-Codex OAuth、MiniMax OAuth 配置链路。
+- 删除移动端 OAuth flow、Android OAuth deep link/credential native module、OpenAI/Gemini gateway adapter 暴露。
+
+### Known Gaps / Next
+- 当前未做旧本地 catalog/channel model/baseUrl 的自动清理，保留用户已有本地状态。
+- `npm test` 需要支持 `--experimental-strip-types` 的更新 Node runtime；当前 Node 20.20.2 无法执行该脚本。
+
 ## V3.3
 
 ### Added

@@ -7,11 +7,13 @@ import com.facebook.react.uimanager.ViewManager
 
 class MobileClawStatePackage : ReactPackage {
   override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> {
-    return listOf(MobileClawStateModule(reactContext))
+    return listOf(
+      MobileClawStateModule(reactContext),
+      MobileClawClipboardModule(reactContext)
+    )
   }
 
   override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> {
     return emptyList()
   }
 }
-

@@ -17,7 +17,7 @@ export function ModelsScreen(props: { store: Store }) {
   const { store } = props;
   const styles = React.useMemo(() => createStyles(store.theme), [store.theme]);
   const [adding, setAdding] = React.useState(false);
-  const [providerId, setProviderId] = React.useState(store.providers[0]?.id ?? "openai");
+  const [providerId, setProviderId] = React.useState(store.providers[0]?.id ?? "deepseek");
   const [modelId, setModelId] = React.useState("");
   const [displayName, setDisplayName] = React.useState("");
   const [error, setError] = React.useState("");
@@ -103,7 +103,7 @@ export function ModelsScreen(props: { store: Store }) {
               style={styles.input}
               value={modelId}
               onChangeText={setModelId}
-              placeholder="模型 ID（例如 MiniMax-M2.5）"
+              placeholder="模型 ID（例如 deepseek-v4-flash 或 MiniMax-M2.5）"
               placeholderTextColor={store.theme.color.onSurfaceVariant}
             />
             <TextInput

@@ -2,9 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AppState, Platform, ToastAndroid, useColorScheme } from "react-native";
 import { MobileClawKernel } from "../../src/app/mobileclaw-kernel";
 import { MODEL_RECOMMENDATIONS } from "../../src/core/gateway/model-recommendations";
-import { GeminiAdapter } from "../../src/core/gateway/gemini-adapter";
+import { DeepSeekCompatibleAdapter } from "../../src/core/gateway/deepseek-compatible-adapter";
 import { MiniMaxAnthropicAdapter } from "../../src/core/gateway/minimax-anthropic-adapter";
-import { OpenAICompatibleAdapter } from "../../src/core/gateway/openai-compatible-adapter";
 import { uid } from "../../src/core/utils/id";
 import { appLogger, type AppLogEntry } from "../../src/core/observability/app-logger";
 import {
@@ -28,9 +27,7 @@ import type {
   ModelProvider,
   ModelSession,
   OAuthClientConfig,
-  OAuthParamSource,
   OAuthWizardSession,
-  ProviderOAuthPreset,
   ResolvedModel,
   ReActRunState,
   ThemePreference,
@@ -40,13 +37,6 @@ import type {
 } from "../../src/types/contracts";
 import type { CronJob } from "../../src/core/cron/types";
 import type { CronExecutionRecord } from "../../src/core/cron/types";
-import {
-  exchangeCodeForToken,
-  pollMiniMaxDeviceToken,
-  startMiniMaxDeviceOAuth,
-  startOAuth,
-  waitForOAuthRedirect
-} from "./oauth/oauth-flow";
 import { createNativePersistence } from "./persistence/native-state-store";
 import { createNativePreferencesStore } from "./persistence/native-preferences-store";
 import { resolveMaterialTheme } from "./theme/material";
@@ -72,20 +62,10 @@ const providers: ModelProvider[] = [
 const visibleProviders = [
   ...listVisibleProviderSpecs().map((spec) => ({
     id: spec.id,
-    label: spec.displayName
+    label: spec.displayName,
+    authModes: spec.authModes
   }))
 ] as const;
-
-const oauthPresets: ProviderOAuthPreset[] = [
-  ...PROVIDER_SPECS
-    .filter((spec) => spec.oauthPreset)
-    .map((spec) => ({
-      id: `${spec.id}-default`,
-      providerId: spec.id,
-      label: `${spec.displayName} Preset`,
-      config: spec.oauthPreset!
-    }))
-];
 
 const ws: WorkspaceConfig = {
   id: "ws_mobile",
@@ -99,49 +79,41 @@ const ws: WorkspaceConfig = {
 
 const defaultModelCatalog: AppModelConfig[] = [
   {
-    key: "openai:gpt-4o-mini",
-    providerId: "openai",
-    modelId: "gpt-4o-mini",
-    displayName: "OpenAI / gpt-4o-mini",
+    key: "deepseek:deepseek-v4-flash",
+    providerId: "deepseek",
+    modelId: "deepseek-v4-flash",
+    displayName: "deepseek/deepseek-v4-flash",
     enabled: true
   },
   {
-    key: "openai:gpt-4.1-mini",
-    providerId: "openai",
-    modelId: "gpt-4.1-mini",
-    displayName: "OpenAI / gpt-4.1-mini",
+    key: "deepseek:deepseek-v4-pro",
+    providerId: "deepseek",
+    modelId: "deepseek-v4-pro",
+    displayName: "deepseek/deepseek-v4-pro",
     enabled: true
   },
   {
     key: "minimax:MiniMax-M2.5",
     providerId: "minimax",
     modelId: "MiniMax-M2.5",
-    displayName: "MiniMax / MiniMax-M2.5",
+    displayName: "MiniMax-M2.5",
     enabled: true
   },
   {
     key: "minimax:MiniMax-M2.7",
     providerId: "minimax",
     modelId: "MiniMax-M2.7",
-    displayName: "MiniMax / MiniMax-M2.7",
+    displayName: "MiniMax-M2.7",
     enabled: true
   }
 ];
 
-const minimaxOAuthPresets = {
+const minimaxApiBasePresets = {
   global: {
-    clientId: "78257093-7e40-4613-99e0-527b14b39113",
-    authEndpoint: "https://api.minimax.io/oauth/code",
-    tokenEndpoint: "https://api.minimax.io/oauth/token",
-    apiBaseUrl: "https://api.minimax.io/anthropic",
-    scopes: ["group_id", "profile", "model.completion"]
+    apiBaseUrl: "https://api.minimax.io/anthropic"
   },
   cn: {
-    clientId: "78257093-7e40-4613-99e0-527b14b39113",
-    authEndpoint: "https://api.minimaxi.com/oauth/code",
-    tokenEndpoint: "https://api.minimaxi.com/oauth/token",
-    apiBaseUrl: "https://api.minimaxi.com/anthropic",
-    scopes: ["group_id", "profile", "model.completion"]
+    apiBaseUrl: "https://api.minimaxi.com/anthropic"
   }
 } as const;
 
@@ -497,18 +469,8 @@ export function useMobileClaw() {
   const preferences = useMemo(() => createNativePreferencesStore(), []);
   const kernel = useMemo(() => {
     const instance = new MobileClawKernel(providers, { persistence });
-    const openaiProvider = providers.find((p) => p.id === "openai");
+    const deepseekProvider = providers.find((p) => p.id === "deepseek");
     const minimaxProvider = providers.find((p) => p.id === "minimax");
-    const googleProvider = providers.find((p) => p.id === "google");
-    if (openaiProvider) {
-      instance.registerProviderAdapter(
-        new OpenAICompatibleAdapter(
-          openaiProvider,
-          instance.credentials,
-          getProviderSpec("openai")?.defaultApiBase ?? "https://api.openai.com/v1"
-        )
-      );
-    }
     if (minimaxProvider) {
       instance.registerProviderAdapter(
         new MiniMaxAnthropicAdapter(
@@ -518,8 +480,14 @@ export function useMobileClaw() {
         )
       );
     }
-    if (googleProvider) {
-      instance.registerProviderAdapter(new GeminiAdapter(googleProvider, instance.credentials));
+    if (deepseekProvider) {
+      instance.registerProviderAdapter(
+        new DeepSeekCompatibleAdapter(
+          deepseekProvider,
+          instance.credentials,
+          getProviderSpec("deepseek")?.defaultApiBase ?? "https://api.deepseek.com"
+        )
+      );
     }
     return instance;
   }, [persistence]);
@@ -574,8 +542,8 @@ export function useMobileClaw() {
 
   const theme = useMemo(() => resolveMaterialTheme(themePreference, systemScheme), [themePreference, systemScheme]);
 
-  const normalizeCatalog = (catalog: AppModelConfig[]): AppModelConfig[] =>
-    catalog.map((m) => {
+  const normalizeCatalog = (catalog: AppModelConfig[]): AppModelConfig[] => {
+    return catalog.map((m) => {
       if (m.providerId !== "minimax") return m;
       const modelId = m.modelId.replace(/^minimax-portal\//, "");
       return {
@@ -585,6 +553,7 @@ export function useMobileClaw() {
         displayName: m.displayName.includes("minimax-portal/") ? `MiniMax / ${modelId}` : m.displayName
       };
     });
+  };
 
   const normalizeChannelModelMap = (map: Record<string, string>): Record<string, string> => {
     const next: Record<string, string> = {};
@@ -1344,7 +1313,7 @@ export function useMobileClaw() {
       } else if (/timed out|timeout|network/i.test(msg)) {
         notice = "系统提示：网络异常或请求超时，请检查网络后重试。";
       } else if (msg.includes("not configured")) {
-        notice = `系统提示：${msg}。请先进入模型页完成 OpenAI 或 MiniMax 配置。`;
+        notice = `系统提示：${msg}。请先进入模型页完成 DeepSeek 或 MiniMax API Key 配置。`;
       } else {
         notice = `系统提示：发送失败（${msg}）`;
       }
@@ -1472,26 +1441,6 @@ export function useMobileClaw() {
     setOnboardingRequired(false);
     if (sessionId) refreshChannelSnapshot(sessionId);
     appLogger.info({ module: "auth", event: "byok_saved", message: "BYOK 已保存", context: { providerId } });
-  };
-
-  const configureOAuth = async (providerId: string, authCode: string) => {
-    await kernel.configureProviderOAuth(providerId, authCode);
-    setProviderCredentialMap(kernel.getProviderCredentialMap());
-    setOnboardingRequired(false);
-    if (sessionId) refreshChannelSnapshot(sessionId);
-  };
-
-  const configureOAuthTokens = async (providerId: string, tokens: any) => {
-    await kernel.configureProviderOAuthTokens(providerId, tokens);
-    setProviderCredentialMap(kernel.getProviderCredentialMap());
-    setOnboardingRequired(false);
-    if (sessionId) refreshChannelSnapshot(sessionId);
-    appLogger.info({
-      module: "auth",
-      event: "oauth_saved",
-      message: "OAuth token 已保存",
-      context: { providerId, hasResourceUrl: Boolean(tokens?.resourceUrl) }
-    });
   };
 
   const initializeAll = async (mode: "full" | "update") => {
@@ -2336,11 +2285,10 @@ export function useMobileClaw() {
 
   const createModel = async (input: { providerId: string; modelId: string; displayName?: string }) => {
     const providerId = input.providerId.trim();
-    const rawModelId = input.modelId.trim();
-    const modelId = providerId === "minimax" ? rawModelId.replace(/^minimax-portal\//, "") : rawModelId;
+    const modelId = input.modelId.trim();
     if (!providerId || !modelId) throw new Error("providerId/modelId 不能为空");
     const key = `${providerId}:${modelId}`;
-    const displayName = input.displayName?.trim() || `${providerId} / ${modelId}`;
+    const displayName = input.displayName?.trim() || modelId;
     const exists = modelCatalog.some((item) => item.key === key);
     if (exists) return key;
     const nextCatalog = [...modelCatalog, { key, providerId, modelId, displayName, enabled: true }];
@@ -2368,21 +2316,19 @@ export function useMobileClaw() {
     if (saved) {
       const next = cloneConfig(saved);
       if (providerId === "minimax" && !next.apiBaseUrl) {
-        next.apiBaseUrl = next.authEndpoint.includes("minimaxi.com")
+        next.apiBaseUrl = next.authEndpoint?.includes("minimaxi.com")
           ? "https://api.minimaxi.com/anthropic"
           : "https://api.minimax.io/anthropic";
       }
       return next;
     }
-    const preset = oauthPresets.find((p) => p.providerId === providerId);
-    if (preset) return cloneConfig(preset.config);
     const spec = getProviderSpec(providerId);
     return {
       clientId: "",
       authEndpoint: "",
       tokenEndpoint: "",
-      scopes: ["openid"],
-      redirectUri: "mobileclaw://oauth",
+      scopes: [],
+      redirectUri: "",
       apiBaseUrl: spec?.defaultApiBase
     };
   };
@@ -2419,24 +2365,27 @@ export function useMobileClaw() {
     appLogger.debug({ module: "onboard", event: "select_auth_mode", message: "选择鉴权方式", context: { authMode } });
     setOauthWizard((prev) => {
       if (!prev.providerId) return { ...prev, error: "请先选择 Provider" };
+      const spec = getProviderSpec(prev.providerId);
+      if (spec && !spec.authModes.includes(authMode)) {
+        return { ...prev, error: `${spec.displayName} 不支持该鉴权方式`, status: "" };
+      }
       if (authMode === "BYOK") {
         return { ...prev, authMode, step: "params", error: "", status: "" };
       }
-      return { ...prev, authMode, step: "param_source", error: "", status: "" };
+      return { ...prev, error: "当前只支持 API Key 配置", status: "" };
     });
   };
 
   const oauthWizardSelectMiniMaxRegion = (region: "global" | "cn") => {
     setOauthWizard((prev) => {
       if (prev.providerId !== "minimax") return prev;
-      const preset = minimaxOAuthPresets[region];
+      const preset = minimaxApiBasePresets[region];
       return {
         ...prev,
         minimaxRegion: region,
         configDraft: {
           ...(prev.configDraft ?? {}),
           ...preset,
-          redirectUri: prev.configDraft?.redirectUri ?? "mobileclaw://oauth",
           extraAuthParams: prev.configDraft?.extraAuthParams
         },
         error: ""
@@ -2450,46 +2399,6 @@ export function useMobileClaw() {
     });
   };
 
-  const oauthWizardSelectParamSource = (source: OAuthParamSource) => {
-    appLogger.debug({ module: "onboard", event: "select_param_source", message: "选择参数来源", context: { source } });
-    setOauthWizard((prev) => {
-      if (!prev.providerId) return { ...prev, error: "请先选择 Provider" };
-      if (prev.authMode !== "OAUTH") return prev;
-      const nextConfig = source === "preset"
-        ? getPresetConfig(prev.providerId)
-        : (prev.configDraft ? cloneConfig(prev.configDraft) : getPresetConfig(prev.providerId));
-      const minimaxRegion = prev.providerId === "minimax" ? inferMiniMaxRegionFromBase(nextConfig.apiBaseUrl) : prev.minimaxRegion;
-      return {
-        ...prev,
-        parameterSource: source,
-        minimaxRegion,
-        configDraft: nextConfig,
-        step: source === "preset" ? "authorize" : "param_source",
-        error: ""
-      };
-    });
-  };
-
-  const oauthWizardUpdateConfig = (patch: Partial<OAuthClientConfig>) => {
-    setOauthWizard((prev) => {
-      const base = prev.configDraft ?? {
-        clientId: "",
-        authEndpoint: "",
-        tokenEndpoint: "",
-        scopes: [],
-        redirectUri: "mobileclaw://oauth"
-      };
-      return {
-        ...prev,
-        configDraft: {
-          ...base,
-          ...patch
-        },
-        error: ""
-      };
-    });
-  };
-
   const oauthWizardUpdateByokKey = (key: string) => {
     setOauthWizard((prev) => ({ ...prev, byokKey: key, error: "" }));
   };
@@ -2498,11 +2407,9 @@ export function useMobileClaw() {
     setOauthWizard((prev) => {
       if (prev.step === "done") return { ...prev, step: "provider", error: "", status: "" };
       if (prev.step === "exchange" || prev.step === "authorize") {
-        if (prev.authMode === "OAUTH") return { ...prev, step: "param_source", error: "", status: "" };
         return { ...prev, step: "params", error: "", status: "" };
       }
       if (prev.step === "params") {
-        if (prev.authMode === "OAUTH") return { ...prev, step: "param_source", error: "" };
         return { ...prev, step: "auth_mode", error: "" };
       }
       if (prev.step === "param_source") return { ...prev, step: "auth_mode", error: "" };
@@ -2519,14 +2426,7 @@ export function useMobileClaw() {
       }
       if (prev.step === "auth_mode") {
         if (!prev.authMode) return { ...prev, error: "请选择鉴权方式" };
-        return { ...prev, step: prev.authMode === "OAUTH" ? "param_source" : "params", error: "" };
-      }
-      if (prev.step === "param_source") {
-        if (prev.authMode !== "OAUTH") return prev;
-        if (prev.parameterSource === "preset") {
-          return { ...prev, step: "authorize", error: "" };
-        }
-        return { ...prev, step: "authorize", error: "" };
+        return { ...prev, step: "params", error: "" };
       }
       if (prev.step === "params") {
         return { ...prev, step: "authorize", error: "" };
@@ -2536,7 +2436,7 @@ export function useMobileClaw() {
   };
 
   const oauthWizardRetry = () => {
-    setOauthWizard((prev) => ({ ...prev, error: "", status: "", step: prev.authMode === "OAUTH" ? "authorize" : "authorize" }));
+    setOauthWizard((prev) => ({ ...prev, error: "", status: "", step: "authorize" }));
   };
 
   const oauthWizardCancel = () => {
@@ -2546,9 +2446,9 @@ export function useMobileClaw() {
       ...prev,
       status: "已停止当前授权流程",
       error: "",
-      step: prev.authMode === "OAUTH" ? "param_source" : "params"
+      step: "params"
     }));
-    appLogger.warn({ module: "onboard", event: "oauth_cancel", message: "用户停止授权流程" });
+    appLogger.warn({ module: "onboard", event: "byok_cancel", message: "用户停止配置流程" });
   };
 
   const oauthWizardExit = () => {
@@ -2605,18 +2505,13 @@ export function useMobileClaw() {
       return;
     }
     try {
-      if (snapshot.authMode === "BYOK") {
-        const key = snapshot.pendingByokKey?.trim() || snapshot.byokKey?.trim() || "";
-        if (!key) throw new Error("API Key 不能为空");
-        if (snapshot.configDraft) kernel.setOAuthClientConfig(snapshot.providerId, snapshot.configDraft);
-        await configureByok(snapshot.providerId, key);
-      } else {
-        if (!snapshot.pendingTokens?.accessToken) throw new Error("尚未拿到 OAuth token，请先执行授权");
-        if (snapshot.configDraft) kernel.setOAuthClientConfig(snapshot.providerId, snapshot.configDraft);
-        await configureOAuthTokens(snapshot.providerId, snapshot.pendingTokens);
-      }
+      if (snapshot.authMode !== "BYOK") throw new Error("当前只支持 API Key 配置");
+      const key = snapshot.pendingByokKey?.trim() || snapshot.byokKey?.trim() || "";
+      if (!key) throw new Error("API Key 不能为空");
+      if (snapshot.configDraft) kernel.setOAuthClientConfig(snapshot.providerId, snapshot.configDraft);
+      await configureByok(snapshot.providerId, key);
 
-      const apiBaseUrl = snapshot.pendingTokens?.resourceUrl || snapshot.configDraft?.apiBaseUrl || providerApiBaseMap[snapshot.providerId];
+      const apiBaseUrl = snapshot.configDraft?.apiBaseUrl || providerApiBaseMap[snapshot.providerId];
       if (apiBaseUrl) {
         const next = { ...providerApiBaseMap, [snapshot.providerId]: apiBaseUrl };
         setProviderApiBaseMap(next);
@@ -2650,122 +2545,41 @@ export function useMobileClaw() {
       setOauthWizard((prev) => ({ ...prev, error: "Provider 或鉴权方式未完成选择" }));
       return;
     }
-
     try {
       const runId = Date.now();
       oauthRunRef.current = { id: runId, cancelled: false };
       setOauthWizardBusy(true);
-      if (snapshot.authMode === "BYOK") {
-        const key = snapshot.byokKey?.trim() ?? "";
-        if (!key) throw new Error("API Key 不能为空");
-        if (snapshot.providerId === "minimax" && !snapshot.configDraft?.apiBaseUrl) {
-          throw new Error("请先选择 MiniMax 区域（Global/CN）");
-        }
-        setOauthWizard((prev) => ({ ...prev, step: "authorize", status: "正在校验 API Key...", error: "" }));
-        setOauthWizard((prev) => ({
-          ...prev,
-          step: "done",
-          pendingByokKey: key,
-          status: "API Key 已准备，点击“更新配置”后生效",
-          error: "",
-          lastSuccessAt: Date.now()
-        }));
-        appLogger.info({
-          module: "onboard",
-          event: "byok_ready",
-          message: "BYOK 已校验并进入待提交态",
-          context: { providerId: snapshot.providerId }
-        });
-        return;
+      if (snapshot.authMode !== "BYOK") throw new Error("当前只支持 API Key 配置");
+      const key = snapshot.byokKey?.trim() ?? "";
+      if (!key) throw new Error("API Key 不能为空");
+      if (snapshot.providerId === "minimax" && !snapshot.configDraft?.apiBaseUrl) {
+        throw new Error("请先选择 MiniMax 区域（Global/CN）");
       }
-
-      const config = snapshot.configDraft;
-      if (!config) throw new Error("OAuth 配置缺失，请返回上一步选择默认配置");
-      if (!config.authEndpoint.trim()) throw new Error("缺少授权地址，请切到手动模式补全");
-      if (!config.tokenEndpoint.trim()) throw new Error("缺少 Token 地址，请切到手动模式补全");
-      if (!config.redirectUri.trim()) throw new Error("缺少回调地址，请切到手动模式补全");
-      if (!config.scopes.length) throw new Error("缺少授权范围，请切到手动模式补全");
-
-      const normalizedConfig: OAuthClientConfig = {
-        ...config,
-        clientId: config.clientId.trim() || `mobileclaw_${snapshot.providerId}_public`,
-        scopes: config.scopes.filter(Boolean),
-        redirectUri: config.redirectUri.trim()
-      };
-
-      const isCancelled = () => oauthRunRef.current?.id === runId && oauthRunRef.current?.cancelled === true;
-      const ensureActive = () => {
-        if (isCancelled()) throw new Error("授权已取消");
-      };
-
-      let tokens;
-      if (snapshot.providerId === "minimax") {
-        setOauthWizard((prev) => ({ ...prev, step: "authorize", status: "正在初始化 MiniMax 授权...", error: "" }));
-        const started = await startMiniMaxDeviceOAuth(normalizedConfig, snapshot.providerId);
-        ensureActive();
-        setOauthWizard((prev) => ({
-          ...prev,
-          step: "exchange",
-          status: `请在网页完成授权，授权码：${started.userCode}`
-        }));
-        tokens = await pollMiniMaxDeviceToken({
-          config: normalizedConfig,
-          userCode: started.userCode,
-          codeVerifier: started.codeVerifier,
-          intervalMs: started.intervalMs,
-          expiresAtMs: started.expiresAtMs,
-          isCancelled,
-          onTick: (message) => {
-            setOauthWizard((prev) => ({ ...prev, step: "exchange", status: message }));
-          }
-        });
-      } else {
-        setOauthWizard((prev) => ({ ...prev, step: "authorize", status: "正在拉起授权网页...", error: "" }));
-        const started = await startOAuth(normalizedConfig, snapshot.providerId);
-        ensureActive();
-
-        setOauthWizard((prev) => ({ ...prev, step: "exchange", status: "等待授权回调中..." }));
-        const code = await waitForOAuthRedirect(started.redirectUri, started.state);
-        ensureActive();
-
-        setOauthWizard((prev) => ({ ...prev, step: "exchange", status: "正在交换 Token..." }));
-        tokens = await exchangeCodeForToken(normalizedConfig, code, started.codeVerifier);
-      }
-      if (!tokens?.accessToken) throw new Error("未拿到 access token，请重试");
+      setOauthWizard((prev) => ({ ...prev, step: "authorize", status: "正在校验 API Key...", error: "" }));
       setOauthWizard((prev) => ({
         ...prev,
         step: "done",
-        configDraft: normalizedConfig,
-        pendingTokens: tokens,
-        status: "OAuth 已完成，点击“更新配置”后生效",
+        pendingByokKey: key,
+        status: "API Key 已准备，点击“更新配置”后生效",
         error: "",
         lastSuccessAt: Date.now()
       }));
       appLogger.info({
         module: "onboard",
-        event: "oauth_ready",
-        message: "OAuth 已完成并进入待提交态",
-        context: { providerId: snapshot.providerId, hasResourceUrl: Boolean(tokens.resourceUrl) }
+        event: "byok_ready",
+        message: "BYOK 已校验并进入待提交态",
+        context: { providerId: snapshot.providerId }
       });
     } catch (err) {
-      if (err instanceof Error && err.message === "授权已取消") {
-        setOauthWizard((prev) => ({
-          ...prev,
-          status: "授权已取消，可重新发起或切换配置",
-          error: "",
-          step: "param_source"
-        }));
-        return;
-      }
       setOauthWizard((prev) => ({
         ...prev,
-        error: normalizeOAuthError(err),
+        error: err instanceof Error ? err.message : String(err),
         status: ""
       }));
       appLogger.error({
         module: "onboard",
-        event: "oauth_failed",
-        message: "OAuth 流程失败",
+        event: "byok_failed",
+        message: "BYOK 流程失败",
         error: err instanceof Error ? err.message : String(err)
       });
     } finally {
@@ -2853,15 +2667,12 @@ export function useMobileClaw() {
     setNotificationPreference,
     developerModeEnabled,
     setDeveloperModePreference,
-    oauthPresets,
     oauthWizard,
     oauthWizardBusy,
     oauthWizardStart,
     oauthWizardSelectProvider,
     oauthWizardSelectAuthMode,
     oauthWizardSelectMiniMaxRegion,
-    oauthWizardSelectParamSource,
-    oauthWizardUpdateConfig,
     oauthWizardUpdateByokKey,
     oauthWizardBack,
     oauthWizardNext,
@@ -2905,21 +2716,8 @@ export function useMobileClaw() {
     toolExecutionRecords,
     clearApprovalBanner: () => setApprovalBannerText(""),
     configureByok,
-    configureOAuth,
-    configureOAuthTokens,
     setOAuthClientConfig: (providerId: string, config: OAuthClientConfig) => kernel.setOAuthClientConfig(providerId, config),
     getOAuthClientConfig: (providerId: string) => kernel.getOAuthClientConfig(providerId),
     initializeAll
   };
-}
-
-function normalizeOAuthError(err: unknown): string {
-  const msg = err instanceof Error ? err.message : String(err);
-  if (/state mismatch/i.test(msg)) return "授权校验失败，请重新发起授权";
-  if (/timed out/i.test(msg)) return "授权超时，请在浏览器完成后返回 App";
-  if (/network request failed/i.test(msg)) return "网络连接失败，请检查网络后重试";
-  if (/1004/.test(msg) || /not login/i.test(msg)) {
-    return "MiniMax 返回 not login（1004）。请确认当前区域选择是否正确后重试。";
-  }
-  return msg;
 }

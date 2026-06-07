@@ -5,15 +5,15 @@ import type { ModelProvider, ModelSession, WorkspaceConfig } from "../types/cont
 
 const providers: ModelProvider[] = [
   {
-    id: "openai",
-    type: "openai",
+    id: "deepseek",
+    type: "deepseek",
     authMode: "BYOK",
     capabilities: { supportsChat: true, supportsEmbedding: true, supportsStream: true }
   },
   {
-    id: "google",
-    type: "google",
-    authMode: "OAUTH",
+    id: "minimax",
+    type: "minimax",
+    authMode: "BYOK",
     capabilities: { supportsChat: true, supportsEmbedding: true, supportsStream: true }
   }
 ];
@@ -26,12 +26,12 @@ const defaultWorkspace: WorkspaceConfig = {
   memoryPolicy: "LOCAL_ONLY"
 };
 
-async function createAuthedSessions(kernel: MobileClawKernel): Promise<{ byok: ModelSession; oauth: ModelSession }> {
-  const byokCredentialRef = await kernel.credentials.saveKey("openai", "sk-local-test");
-  const oauthCredentialRef = await kernel.credentials.startOAuth("google", "mock_auth_code");
+async function createAuthedSessions(kernel: MobileClawKernel): Promise<{ primary: ModelSession; fallback: ModelSession }> {
+  const primaryCredentialRef = await kernel.credentials.saveKey("deepseek", "sk-local-test");
+  const fallbackCredentialRef = await kernel.credentials.saveKey("minimax", "sk-minimax-test");
   return {
-    byok: { providerId: "openai", modelId: "small", credentialRef: byokCredentialRef },
-    oauth: { providerId: "google", modelId: "large", credentialRef: oauthCredentialRef }
+    primary: { providerId: "deepseek", modelId: "small", credentialRef: primaryCredentialRef },
+    fallback: { providerId: "minimax", modelId: "large", credentialRef: fallbackCredentialRef }
   };
 }
 
@@ -39,10 +39,10 @@ test("same channel keeps context when switching model", async () => {
   const kernel = new MobileClawKernel(providers);
   kernel.addWorkspace(defaultWorkspace);
   const channelId = kernel.createChannel("ws1", "daily");
-  const { byok, oauth } = await createAuthedSessions(kernel);
+  const { primary, fallback } = await createAuthedSessions(kernel);
 
-  await kernel.sendMessage({ channelId, text: "你好，我是前端开发", primary: byok });
-  await kernel.sendMessage({ channelId, text: "记住我喜欢React Native", primary: oauth, fallback: byok });
+  await kernel.sendMessage({ channelId, text: "你好，我是前端开发", primary });
+  await kernel.sendMessage({ channelId, text: "记住我喜欢React Native", primary: fallback, fallback: primary });
 
   const messages = kernel.getMessages(channelId);
   const userMessages = messages.filter((m) => m.role === "user");
@@ -56,10 +56,10 @@ test("memory is isolated by channel", async () => {
   kernel.addWorkspace(defaultWorkspace);
   const chA = kernel.createChannel("ws1", "A");
   const chB = kernel.createChannel("ws1", "B");
-  const { byok } = await createAuthedSessions(kernel);
+  const { primary } = await createAuthedSessions(kernel);
 
-  await kernel.sendMessage({ channelId: chA, text: "我喜欢咖啡", primary: byok });
-  await kernel.sendMessage({ channelId: chB, text: "我喜欢茶", primary: byok });
+  await kernel.sendMessage({ channelId: chA, text: "我喜欢咖啡", primary });
+  await kernel.sendMessage({ channelId: chB, text: "我喜欢茶", primary });
 
   const memA = kernel.memory.list(chA).map((m) => m.content).join("|");
   const memB = kernel.memory.list(chB).map((m) => m.content).join("|");
@@ -98,7 +98,7 @@ test("sendMessage publishes bus events", async () => {
   const kernel = new MobileClawKernel(providers);
   kernel.addWorkspace(defaultWorkspace);
   const channelId = kernel.createChannel("ws1", "bus");
-  const { byok } = await createAuthedSessions(kernel);
+  const { primary } = await createAuthedSessions(kernel);
 
   let outboundText = "";
   const off = kernel.bus.onOutbound((event) => {
@@ -107,7 +107,7 @@ test("sendMessage publishes bus events", async () => {
   await kernel.sendMessage({
     channelId,
     text: "bus hello",
-    primary: byok
+    primary
   });
   off();
 
@@ -120,13 +120,13 @@ test("prompt assembly report is channel-specific and recall system text is hidde
   kernel.addWorkspace(defaultWorkspace);
   const chA = kernel.createChannel("ws1", "A");
   const chB = kernel.createChannel("ws1", "B");
-  const { byok } = await createAuthedSessions(kernel);
+  const { primary } = await createAuthedSessions(kernel);
 
   kernel.setWorkspaceSoul("ws1", "你是一个严谨的助手。");
   kernel.setChannelSoul(chB, "你在频道B需要更简短回复。");
 
-  await kernel.sendMessage({ channelId: chA, text: "记住我喜欢短回复", primary: byok });
-  await kernel.sendMessage({ channelId: chB, text: "记住我喜欢详细说明", primary: byok });
+  await kernel.sendMessage({ channelId: chA, text: "记住我喜欢短回复", primary });
+  await kernel.sendMessage({ channelId: chB, text: "记住我喜欢详细说明", primary });
 
   const reportA = kernel.getLastPromptReport(chA);
   const reportB = kernel.getLastPromptReport(chB);
@@ -147,7 +147,7 @@ test("workspace SOUL file update is reflected in prompt assembly", async () => {
   const kernel = new MobileClawKernel(providers);
   kernel.addWorkspace(defaultWorkspace);
   const channelId = kernel.createChannel("ws1", "soul");
-  const { byok } = await createAuthedSessions(kernel);
+  const { primary } = await createAuthedSessions(kernel);
 
   const pending = kernel.applyWorkspaceEdit({
     channelId,
@@ -159,7 +159,7 @@ test("workspace SOUL file update is reflected in prompt assembly", async () => {
 
   const confirmed = kernel.confirmPendingWorkspaceEdit(channelId);
   assert.equal(confirmed.handled, true);
-  await kernel.sendMessage({ channelId, text: "你的soul是什么", primary: byok });
+  await kernel.sendMessage({ channelId, text: "你的soul是什么", primary });
   const report = kernel.getLastPromptReport(channelId);
   const soulSegment = report?.segments.find((seg) => seg.source === "soul");
   assert.ok(soulSegment);
@@ -182,10 +182,10 @@ test("MEMORY.md is injected only for main context channels", async () => {
   const kernel = new MobileClawKernel(providers);
   const mainChannel = kernel.ensureWorkspaceAndDefaultChannel(defaultWorkspace, "main");
   const sharedChannel = kernel.createChannel("ws1", "shared");
-  const { byok } = await createAuthedSessions(kernel);
+  const { primary } = await createAuthedSessions(kernel);
 
-  await kernel.sendMessage({ channelId: mainChannel, text: "main memory check", primary: byok });
-  await kernel.sendMessage({ channelId: sharedChannel, text: "shared memory check", primary: byok });
+  await kernel.sendMessage({ channelId: mainChannel, text: "main memory check", primary });
+  await kernel.sendMessage({ channelId: sharedChannel, text: "shared memory check", primary });
 
   const mainReport = kernel.getLastPromptReport(mainChannel);
   const sharedReport = kernel.getLastPromptReport(sharedChannel);
@@ -196,7 +196,7 @@ test("MEMORY.md is injected only for main context channels", async () => {
 test("BOOTSTRAP.md is skipped after setupCompletedAt", async () => {
   const kernel = new MobileClawKernel(providers);
   const channelId = kernel.ensureWorkspaceAndDefaultChannel(defaultWorkspace, "main");
-  const { byok } = await createAuthedSessions(kernel);
+  const { primary } = await createAuthedSessions(kernel);
 
   const docs = (kernel as unknown as { assetDocs: Map<string, { path: string; name: string; updatedAt: number; contentMd: string }> }).assetDocs;
   docs.set("workspace/.openclaw/workspace-state.json", {
@@ -215,7 +215,7 @@ test("BOOTSTRAP.md is skipped after setupCompletedAt", async () => {
     )
   });
 
-  await kernel.sendMessage({ channelId, text: "bootstrap check", primary: byok });
+  await kernel.sendMessage({ channelId, text: "bootstrap check", primary });
   const report = kernel.getLastPromptReport(channelId);
   assert.equal(report?.contextFiles?.some((f) => f.path === "workspace/BOOTSTRAP.md"), false);
 });
@@ -224,7 +224,7 @@ test("kernel cron job triggers agent message", async () => {
   const kernel = new MobileClawKernel(providers);
   kernel.addWorkspace(defaultWorkspace);
   const channelId = kernel.createChannel("ws1", "cron");
-  await kernel.configureProviderByok("openai", "sk_cron_test");
+  await kernel.configureProviderByok("deepseek", "sk_cron_test");
 
   kernel.addCronJob({
     name: "cron-once",

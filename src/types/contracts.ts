@@ -1,5 +1,5 @@
 export type AuthMode = "BYOK" | "OAUTH";
-export type ProviderType = "openai" | "google" | "anthropic" | "minimax" | "custom";
+export type ProviderType = "deepseek" | "minimax" | "custom";
 export type MemoryPolicy = "LOCAL_ONLY";
 export type MemoryRecordType = "preference" | "fact" | "goal";
 export type ModelTier = "small" | "large";

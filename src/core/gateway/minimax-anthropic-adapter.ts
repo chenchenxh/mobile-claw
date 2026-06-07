@@ -19,6 +19,14 @@ interface AnthropicMessageResponse {
   error?: { message?: string; type?: string };
 }
 
+function headersToRecord(headers: Headers): Record<string, string> {
+  const out: Record<string, string> = {};
+  headers.forEach((value, key) => {
+    out[key] = value;
+  });
+  return out;
+}
+
 export class MiniMaxAnthropicAdapter implements GatewayAdapter {
   readonly provider: ModelProvider;
   private readonly credentials: InMemoryCredentialStore;
@@ -39,8 +47,8 @@ export class MiniMaxAnthropicAdapter implements GatewayAdapter {
   }
 
   async chat(request: ChatRequest, session: ModelSession): Promise<ChatResponse> {
-    const { token, resourceUrl, authMode } = await this.getAccess(session);
-    const baseUrl = this.resolveBaseUrl(session.apiBaseUrl, resourceUrl);
+    const token = await this.getAccessToken(session);
+    const baseUrl = this.resolveBaseUrl(session.apiBaseUrl);
     const region = /minimaxi\.com/i.test(baseUrl) ? "cn" : "global";
     appLogger.info({
       module: "gateway.minimax",
@@ -51,36 +59,54 @@ export class MiniMaxAnthropicAdapter implements GatewayAdapter {
         modelId: session.modelId,
         baseUrl,
         region,
-        authMode
+        authMode: "BYOK"
       }
     });
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
-      "anthropic-version": "2023-06-01"
+      "anthropic-version": "2023-06-01",
+      "x-api-key": token
     };
-    // OpenClaw behavior: OAuth token走 Authorization，BYOK 附带 x-api-key 兼容部分网关。
-    if (authMode === "BYOK") headers["x-api-key"] = token;
-    const res = await fetch(`${baseUrl}/v1/messages`, {
+    const url = `${baseUrl}/v1/messages`;
+    const body = {
+      model: session.modelId,
+      max_tokens: 2048,
+      messages: request.messages
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .map((m) => ({
+          role: m.role,
+          content: m.content
+        })),
+      system: request.systemPrompt
+    };
+    appLogger.debug({
+      module: "gateway.minimax",
+      event: "raw_request",
+      message: "MiniMax 原始请求",
+      context: {
+        providerId: session.providerId,
+        modelId: session.modelId,
+        baseUrl,
+        rawRequest: {
+          method: "POST",
+          url,
+          headers,
+          body
+        }
+      }
+    });
+    const res = await fetch(url, {
       method: "POST",
       signal: request.signal,
       headers,
-      body: JSON.stringify({
-        model: session.modelId,
-        max_tokens: 2048,
-        messages: request.messages
-          .filter((m) => m.role === "user" || m.role === "assistant")
-          .map((m) => ({
-            role: m.role,
-            content: m.content
-          })),
-        system: request.systemPrompt
-      })
+      body: JSON.stringify(body)
     });
+    const text = await res.text();
+    const responseHeaders = headersToRecord(res.headers);
 
     if (!res.ok) {
-      const text = await res.text();
-      let detail = text.slice(0, 280).replace(/\s+/g, " ").trim();
+      let detail = text.replace(/\s+/g, " ").trim();
       try {
         const parsed = JSON.parse(text) as { error?: { message?: string; type?: string } };
         if (parsed?.error?.message || parsed?.error?.type) {
@@ -104,13 +130,25 @@ export class MiniMaxAnthropicAdapter implements GatewayAdapter {
           modelId: session.modelId,
           baseUrl,
           region,
-          authMode,
+          authMode: "BYOK",
           status: res.status,
-          classification
+          classification,
+          rawRequest: {
+            method: "POST",
+            url,
+            headers,
+            body
+          },
+          rawResponse: {
+            status: res.status,
+            statusText: res.statusText,
+            headers: responseHeaders,
+            bodyText: text
+          }
         },
         error: detail
       });
-      if (classification === "auth" && authMode === "BYOK") {
+      if (classification === "auth") {
         appLogger.warn({
           module: "gateway.minimax",
           event: "minimax_region_mismatch_suspected",
@@ -123,7 +161,7 @@ export class MiniMaxAnthropicAdapter implements GatewayAdapter {
       );
     }
 
-    const json = (await res.json()) as AnthropicMessageResponse;
+    const json = JSON.parse(text) as AnthropicMessageResponse;
     const extracted = this.extractText(json);
     if (!extracted.text.trim()) {
       appLogger.warn({
@@ -144,7 +182,25 @@ export class MiniMaxAnthropicAdapter implements GatewayAdapter {
       module: "gateway.minimax",
       event: "response_ok",
       message: "MiniMax 响应成功",
-      context: { modelId: session.modelId, baseUrl, responseParseMode: extracted.mode }
+      context: {
+        modelId: session.modelId,
+        baseUrl,
+        responseParseMode: extracted.mode,
+        status: res.status,
+        rawRequest: {
+          method: "POST",
+          url,
+          headers,
+          body
+        },
+        rawResponse: {
+          status: res.status,
+          statusText: res.statusText,
+          headers: responseHeaders,
+          body: json,
+          bodyText: text
+        }
+      }
     });
     return {
       text: extracted.text,
@@ -169,30 +225,27 @@ export class MiniMaxAnthropicAdapter implements GatewayAdapter {
     if (!credential || credential.providerId !== session.providerId) {
       return { ok: false, reason: "credential_not_found" };
     }
-    const token = credential.authMode === "BYOK" ? credential.apiKey : credential.oauth?.accessToken;
-    if (!token) return { ok: false, reason: "missing_access_token" };
+    if (credential.authMode !== "BYOK") return { ok: false, reason: "unsupported_auth_mode" };
+    if (!credential.apiKey) return { ok: false, reason: "missing_access_token" };
     return { ok: true };
   }
 
-  private async getAccess(session: ModelSession): Promise<{ token: string; resourceUrl?: string; authMode: "BYOK" | "OAUTH" }> {
+  private async getAccessToken(session: ModelSession): Promise<string> {
     const credential = await this.credentials.get(session.credentialRef);
     if (!credential) throw new Error("credential not found");
-    if (credential.authMode === "BYOK") {
-      if (!credential.apiKey) throw new Error("access token missing");
-      return { token: credential.apiKey, authMode: "BYOK" };
-    }
-    if (!credential.oauth?.accessToken) throw new Error("access token missing");
-    return { token: credential.oauth.accessToken, resourceUrl: credential.oauth.resourceUrl, authMode: "OAUTH" };
+    if (credential.authMode !== "BYOK") throw new Error("unsupported auth mode: MiniMax only supports API Key");
+    if (!credential.apiKey) throw new Error("access token missing");
+    return credential.apiKey;
   }
 
-  private resolveBaseUrl(sessionBase?: string, resourceUrl?: string): string {
-    const raw = (resourceUrl?.trim() || sessionBase?.trim() || this.defaultBaseUrl).replace(/\/+$/, "");
+  private resolveBaseUrl(sessionBase?: string): string {
+    const raw = (sessionBase?.trim() || this.defaultBaseUrl).replace(/\/+$/, "");
     if (raw.endsWith("/anthropic")) return raw;
     if (raw.endsWith("/v1")) return raw.replace(/\/v1$/, "/anthropic");
     return `${raw}/anthropic`;
   }
 
-  private extractText(response: AnthropicMessageResponse): { text: string; mode: "content_text" | "text_field" | "output_text" | "openai_choice" | "unknown" } {
+  private extractText(response: AnthropicMessageResponse): { text: string; mode: "content_text" | "text_field" | "output_text" | "choice_message" | "unknown" } {
     if (Array.isArray(response.content)) {
       const contentText = response.content
         .map((entry) => {
@@ -213,7 +266,7 @@ export class MiniMaxAnthropicAdapter implements GatewayAdapter {
     }
     const choiceText = response.choices?.[0]?.message?.content;
     if (typeof choiceText === "string" && choiceText.trim()) {
-      return { text: choiceText.trim(), mode: "openai_choice" };
+      return { text: choiceText.trim(), mode: "choice_message" };
     }
     return { text: "", mode: "unknown" };
   }

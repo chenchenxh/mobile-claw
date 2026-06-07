@@ -10,6 +10,7 @@ yarn-error.log*
 
 # Gradle / Android build outputs
 .gradle/
+.gradle-local/
 android/.gradle/
 android/app/build/
 android/build/

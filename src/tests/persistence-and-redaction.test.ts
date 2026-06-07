@@ -10,8 +10,8 @@ import type { ModelProvider, WorkspaceConfig } from "../types/contracts.ts";
 
 const providers: ModelProvider[] = [
   {
-    id: "openai",
-    type: "openai",
+    id: "deepseek",
+    type: "deepseek",
     authMode: "BYOK",
     capabilities: { supportsChat: true, supportsEmbedding: true, supportsStream: true }
   }
@@ -33,11 +33,11 @@ test("state persists and restores after kernel restart", async () => {
     const kernel1 = new MobileClawKernel(providers, { persistence });
     kernel1.addWorkspace(ws);
     const channelId = kernel1.createChannel(ws.id, "main");
-    const cred = await kernel1.credentials.saveKey("openai", "sk_test_persist");
+    const cred = await kernel1.credentials.saveKey("deepseek", "sk_test_persist");
     await kernel1.sendMessage({
       channelId,
       text: "我喜欢离线存储",
-      primary: { providerId: "openai", modelId: "small", credentialRef: cred }
+      primary: { providerId: "deepseek", modelId: "small", credentialRef: cred }
     });
     await kernel1.persistNow();
 
@@ -69,7 +69,7 @@ test("cron jobs persist and restore after kernel restart", async () => {
     const kernel1 = new MobileClawKernel(providers, { persistence });
     kernel1.addWorkspace(ws);
     const channelId = kernel1.createChannel(ws.id, "cron");
-    await kernel1.configureProviderByok("openai", "sk_cron_persist");
+    await kernel1.configureProviderByok("deepseek", "sk_cron_persist");
     kernel1.addCronJob({
       name: "daily-reminder",
       schedule: { kind: "every", everyMs: 60_000 },

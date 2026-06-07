@@ -8,7 +8,7 @@ const providers: ModelProvider[] = [
     id: "minimax",
     type: "minimax",
     authMode: "BYOK",
-    authModes: ["BYOK", "OAUTH"],
+    authModes: ["BYOK"],
     capabilities: { supportsChat: true, supportsEmbedding: true, supportsStream: true }
   }
 ];
@@ -25,7 +25,7 @@ const ws: WorkspaceConfig = {
   }
 };
 
-test("single provider supports BYOK and OAuth token credentials", async () => {
+test("single provider supports BYOK credentials", async () => {
   const kernel = new MobileClawKernel(providers);
   kernel.addWorkspace(ws);
   const channelId = kernel.createChannel(ws.id, "main");
@@ -33,14 +33,6 @@ test("single provider supports BYOK and OAuth token credentials", async () => {
   await kernel.configureProviderByok("minimax", "sk_minimax_test");
   await kernel.sendMessage({ channelId, text: "BYOK message", tier: "small" });
 
-  await kernel.configureProviderOAuthTokens("minimax", {
-    accessToken: "oauth_access_minimax",
-    refreshToken: "oauth_refresh_minimax",
-    expiresAt: Date.now() + 60_000
-  });
-  await kernel.sendMessage({ channelId, text: "OAuth message", tier: "large" });
-
   const all = kernel.getMessages(channelId).map((m) => `${m.role}:${m.content}`).join("\n");
   assert.match(all, /BYOK message/);
-  assert.match(all, /OAuth message/);
 });
